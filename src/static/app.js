@@ -17,7 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 4000);
   }
 
-  function createParticipantsSection(participants) {
+  function createParticipantsSection(participants, activityName) {
     const wrapper = document.createElement("div");
     wrapper.className = "participants-section";
 
@@ -47,11 +47,59 @@ document.addEventListener("DOMContentLoaded", () => {
     ul.className = "participants-list";
     participants.forEach((p) => {
       const li = document.createElement("li");
-      li.textContent = p;
+      li.className = "participant-item";
+
+      const span = document.createElement("span");
+      span.className = "participant-email";
+      span.textContent = p;
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "participant-delete";
+      btn.setAttribute("aria-label", `Unregister ${p} from ${activityName}`);
+      // Use a simple trash glyph
+      btn.innerHTML = "🗑";
+      btn.addEventListener("click", () => {
+        unregisterParticipant(activityName, p);
+      });
+
+      li.appendChild(span);
+      li.appendChild(btn);
       ul.appendChild(li);
     });
     wrapper.appendChild(ul);
     return wrapper;
+  }
+
+  function unregisterParticipant(activityName, email) {
+    if (!confirm(`Unregister ${email} from ${activityName}?`)) return;
+    const url = `/activities/${encodeURIComponent(activityName)}/unregister?email=${encodeURIComponent(
+      email
+    )}`;
+    fetch(url, { method: "DELETE" })
+      .then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          const detail = err.detail || res.statusText || "Unregister failed";
+          throw new Error(detail);
+        }
+        return res.json();
+      })
+      .then((body) => {
+        // Update local activities and UI
+        if (activities[activityName]) {
+          activities[activityName].participants = (
+            activities[activityName].participants || []
+          ).filter((e) => e !== email);
+          renderActivities();
+        } else {
+          fetchActivities();
+        }
+        showMessage(body.message || `Unregistered ${email}`, "success");
+      })
+      .catch((e) => {
+        showMessage(e.message || "Unregister failed", "error");
+      });
   }
 
   function renderActivities() {
@@ -78,8 +126,8 @@ document.addEventListener("DOMContentLoaded", () => {
       cap.innerHTML = `<strong>Capacity:</strong> ${activity.participants.length} / ${activity.max_participants}`;
       card.appendChild(cap);
 
-      // Participants section
-      card.appendChild(createParticipantsSection(activity.participants || []));
+  // Participants section (pass activity name so unregister works)
+  card.appendChild(createParticipantsSection(activity.participants || [], name));
 
       activitiesListEl.appendChild(card);
     });
@@ -133,14 +181,8 @@ document.addEventListener("DOMContentLoaded", () => {
         return res.json();
       })
       .then((body) => {
-        // Update local activities and UI
-        if (activities[activityName]) {
-          activities[activityName].participants.push(email);
-          renderActivities();
-        } else {
-          // reload from server if missing
-          fetchActivities();
-        }
+        // Refresh activities from server to ensure UI matches server state
+        fetchActivities();
         showMessage(body.message || "Signed up successfully!", "success");
         signupForm.reset();
       })
